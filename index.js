@@ -105,24 +105,37 @@ client.on(Events.InteractionCreate, async (interaction) => {
 });
 
 client.on(Events.GuildMemberUpdate, async (oldMember, newMember) => {
-  const roleGuildMember = newMember.guild.roles.cache.find(r => r.name === process.env.ROLE_GUILD_MEMBER);
-  const roleGuildGuest = newMember.guild.roles.cache.find(r => r.name === process.env.ROLE_GUILD_GUEST);
-  const roleUnknown = newMember.guild.roles.cache.find(r => r.name === process.env.ROLE_UNKNOWN);
+  const guild = newMember.guild;
 
-  const hadGuildMember = oldMember.roles.cache.has(roleGuildMember?.id);
-  const hasGuildMember = newMember.roles.cache.has(roleGuildMember?.id);
+  const roleUnknown = guild.roles.cache.find(r => r.name === process.env.ROLE_UNKNOWN);
+  const roleGuest = guild.roles.cache.find(r => r.name === process.env.ROLE_GUEST);
+  const roleGuildGuest = guild.roles.cache.find(r => r.name === process.env.ROLE_GUILD_GUEST);
+  const roleGuildMember = guild.roles.cache.find(r => r.name === process.env.ROLE_GUILD_MEMBER);
+
+  const hadGuest = oldMember.roles.cache.has(roleGuest?.id);
+  const hasGuest = newMember.roles.cache.has(roleGuest?.id);
 
   const hadGuildGuest = oldMember.roles.cache.has(roleGuildGuest?.id);
   const hasGuildGuest = newMember.roles.cache.has(roleGuildGuest?.id);
 
-  const hadUnknown = oldMember.roles.cache.has(roleUnknown?.id);
+  const hadGuildMember = oldMember.roles.cache.has(roleGuildMember?.id);
+  const hasGuildMember = newMember.roles.cache.has(roleGuildMember?.id);
+
   const hasUnknown = newMember.roles.cache.has(roleUnknown?.id);
 
+  // ✅ 1. Remove Unknown when Guest is added
+  if (!hadGuest && hasGuest && hasUnknown) {
+    await newMember.roles.remove(roleUnknown);
+    console.log(`🧹 Removed Unknown from ${newMember.user.tag} after choosing Gaming Community`);
+  }
+
+  // ✅ 2. Remove Unknown when Guild Guest is added
   if (!hadGuildGuest && hasGuildGuest && hasUnknown) {
     await newMember.roles.remove(roleUnknown);
     console.log(`🧹 Removed Unknown from ${newMember.user.tag} after choosing Arise Crossover`);
   }
 
+  // ✅ 3. Remove Guild Guest when verified as Guild Member
   if (!hadGuildMember && hasGuildMember && hasGuildGuest) {
     await newMember.roles.remove(roleGuildGuest);
     console.log(`🛡️ ${newMember.user.tag} promoted to Guild Member (Guild Guest removed)`);
