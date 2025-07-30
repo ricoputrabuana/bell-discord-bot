@@ -1,4 +1,16 @@
-import { Client, GatewayIntentBits, Partials, Events, EmbedBuilder, ButtonBuilder, ButtonStyle, ActionRowBuilder } from 'discord.js';
+import {
+  Client,
+  GatewayIntentBits,
+  Partials,
+  Events,
+  EmbedBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  ActionRowBuilder,
+  SlashCommandBuilder,
+  REST,
+  Routes
+} from 'discord.js';
 import dotenv from 'dotenv';
 dotenv.config();
 
@@ -12,76 +24,98 @@ const client = new Client({
   partials: [Partials.Message, Partials.Channel, Partials.Reaction]
 });
 
-client.once(Events.ClientReady, () => {
-  console.log(`✅ Bot siap sebagai ${client.user.tag}`);
-});
+// Ready
+client.once(Events.ClientReady, async () => {
+  console.log(`✅ Bot ready as ${client.user.tag}`);
 
-// Beri role unverified saat member join
-client.on(Events.GuildMemberAdd, async (member) => {
-  const unverified = member.guild.roles.cache.find(r => r.name === process.env.ROLE_UNVERIFIED);
-  if (unverified) {
-    await member.roles.add(unverified);
-    console.log(`➕ ${member.user.tag} diberi role unverified`);
+  const rest = new REST({ version: '10' }).setToken(process.env.TOKEN);
+
+  const commands = [
+    new SlashCommandBuilder()
+      .setName('send-rules')
+      .setDescription('Send the rules message with a verification button'),
+  ].map(command => command.toJSON());
+
+  try {
+    await rest.put(
+      Routes.applicationCommands(client.user.id),
+      { body: commands }
+    );
+    console.log('✅ Slash command registered.');
+  } catch (error) {
+    console.error('❌ Failed to register slash command:', error);
   }
 });
 
-// Kirim embed verifikasi ke #rules dengan 2 tombol
-client.on(Events.MessageCreate, async (message) => {
-  if (message.content === "!kirimverifikasi" && message.member.permissions.has('Administrator')) {
+// Assign 'Unknown' role on join
+client.on(Events.GuildMemberAdd, async (member) => {
+  const unknown = member.guild.roles.cache.find(r => r.name === process.env.ROLE_UNKNOWN);
+  if (unknown) {
+    await member.roles.add(unknown);
+    console.log(`➕ ${member.user.tag} assigned Unknown role.`);
+  }
+});
+
+// Slash command to send rules with button
+client.on(Events.InteractionCreate, async (interaction) => {
+  if (!interaction.isChatInputCommand()) return;
+
+  if (interaction.commandName === 'send-rules') {
+    if (!interaction.member.permissions.has('Administrator')) {
+      return await interaction.reply({
+        content: '❌ You do not have permission to use this command.',
+        ephemeral: true
+      });
+    }
+
     const embed = new EmbedBuilder()
-      .setTitle("📜 Aturan Server")
-      .setDescription("Silakan baca aturan dengan baik. Jika kamu setuju, pilih tombol berikut.\n\n✅ **Saya Setuju** — akan diberi akses ke server.\n🕹️ **Saya Pemain Arise** — butuh verifikasi akun Roblox via Bloxlink.")
+      .setTitle("📜 After Reading")
+      .setDescription("Click the button below to get the Verified Member role and access the rest of the server.")
       .setColor(0x00FF00);
 
     const row = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
         .setCustomId("verify_member")
-        .setLabel("✅ Saya Setuju")
-        .setStyle(ButtonStyle.Success),
-      new ButtonBuilder()
-        .setCustomId("verify_arise")
-        .setLabel("🕹️ Saya Pemain Arise")
-        .setStyle(ButtonStyle.Primary)
+        .setLabel("✅ I Agree")
+        .setStyle(ButtonStyle.Success)
     );
 
-    await message.channel.send({ embeds: [embed], components: [row] });
+    await interaction.channel.send({ embeds: [embed], components: [row] });
+    await interaction.reply({ content: '✅ Rules message sent.', ephemeral: true });
   }
 });
 
-// Handle tombol verifikasi
+// Handle '✅ I Agree' button
 client.on(Events.InteractionCreate, async (interaction) => {
   if (!interaction.isButton()) return;
+  if (interaction.customId !== 'verify_member') return;
 
   const member = interaction.member;
   const roles = member.roles.cache;
 
-  const roleUnverified = member.guild.roles.cache.find(r => r.name === process.env.ROLE_UNVERIFIED);
+  const roleUnknown = member.guild.roles.cache.find(r => r.name === process.env.ROLE_UNKNOWN);
+  const roleGuest = member.guild.roles.cache.find(r => r.name === process.env.ROLE_GUEST);
   const roleMember = member.guild.roles.cache.find(r => r.name === process.env.ROLE_MEMBER);
-  const roleArise = member.guild.roles.cache.find(r => r.name === process.env.ROLE_ARISE);
-  const roleBloxlink = member.guild.roles.cache.find(r => r.name === process.env.ROLE_BLOXLINK);
 
-  // Tombol 1: Saya Setuju (Member)
-  if (interaction.customId === "verify_member") {
-    if (roleUnverified) await member.roles.remove(roleUnverified);
-    if (roleMember && !roles.has(roleMember.id)) await member.roles.add(roleMember);
+  if (roleMember && !roles.has(roleMember.id)) await member.roles.add(roleMember);
+  if (roleGuest && roles.has(roleGuest.id)) await member.roles.remove(roleGuest);
+  if (roleUnknown && roles.has(roleUnknown.id)) await member.roles.remove(roleUnknown);
 
-    await interaction.reply({ content: `✅ Kamu telah disetujui sebagai member. Selamat datang!`, ephemeral: true });
-  }
+  await interaction.reply({ content: '✅ You are now verified as a Member. Welcome!', ephemeral: true });
+});
 
-  // Tombol 2: Saya Pemain Arise (verifikasi Bloxlink)
-  else if (interaction.customId === "verify_arise") {
-    if (!roleBloxlink || !roles.has(roleBloxlink.id)) {
-      return await interaction.reply({
-        content: `❌ Kamu belum memverifikasi akun Roblox melalui Bloxlink.\nSilakan verifikasi terlebih dahulu menggunakan Bloxlink di channel terkait.`,
-        ephemeral: true
-      });
-    }
+// Auto-remove Guild Guest if user gets Guild Member (via Bloxlink)
+client.on(Events.GuildMemberUpdate, async (oldMember, newMember) => {
+  const roleGuildMember = newMember.guild.roles.cache.find(r => r.name === process.env.ROLE_GUILD_MEMBER);
+  const roleGuildGuest = newMember.guild.roles.cache.find(r => r.name === process.env.ROLE_GUILD_GUEST);
 
-    if (roleUnverified) await member.roles.remove(roleUnverified);
-    if (roleMember && !roles.has(roleMember.id)) await member.roles.add(roleMember);
-    if (roleArise && !roles.has(roleArise.id)) await member.roles.add(roleArise);
+  const hadGuildMember = oldMember.roles.cache.has(roleGuildMember?.id);
+  const hasGuildMember = newMember.roles.cache.has(roleGuildMember?.id);
+  const hasGuildGuest = newMember.roles.cache.has(roleGuildGuest?.id);
 
-    await interaction.reply({ content: `🕹️ Kamu telah diverifikasi sebagai Pemain Arise. Selamat datang!`, ephemeral: true });
+  if (!hadGuildMember && hasGuildMember && hasGuildGuest) {
+    await newMember.roles.remove(roleGuildGuest);
+    console.log(`🛡️ ${newMember.user.tag} promoted to Guild Member (Guild Guest removed)`);
   }
 });
 
