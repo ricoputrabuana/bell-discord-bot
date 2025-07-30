@@ -104,14 +104,24 @@ client.on(Events.InteractionCreate, async (interaction) => {
   await interaction.reply({ content: '✅ You are now verified as a Member. Welcome!', ephemeral: true });
 });
 
-// Auto-remove Guild Guest if user gets Guild Member (via Bloxlink)
 client.on(Events.GuildMemberUpdate, async (oldMember, newMember) => {
   const roleGuildMember = newMember.guild.roles.cache.find(r => r.name === process.env.ROLE_GUILD_MEMBER);
   const roleGuildGuest = newMember.guild.roles.cache.find(r => r.name === process.env.ROLE_GUILD_GUEST);
+  const roleUnknown = newMember.guild.roles.cache.find(r => r.name === process.env.ROLE_UNKNOWN);
 
   const hadGuildMember = oldMember.roles.cache.has(roleGuildMember?.id);
   const hasGuildMember = newMember.roles.cache.has(roleGuildMember?.id);
+
+  const hadGuildGuest = oldMember.roles.cache.has(roleGuildGuest?.id);
   const hasGuildGuest = newMember.roles.cache.has(roleGuildGuest?.id);
+
+  const hadUnknown = oldMember.roles.cache.has(roleUnknown?.id);
+  const hasUnknown = newMember.roles.cache.has(roleUnknown?.id);
+
+  if (!hadGuildGuest && hasGuildGuest && hasUnknown) {
+    await newMember.roles.remove(roleUnknown);
+    console.log(`🧹 Removed Unknown from ${newMember.user.tag} after choosing Arise Crossover`);
+  }
 
   if (!hadGuildMember && hasGuildMember && hasGuildGuest) {
     await newMember.roles.remove(roleGuildGuest);
